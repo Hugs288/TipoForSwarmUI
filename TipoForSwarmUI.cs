@@ -12,7 +12,7 @@ namespace SwarmExtensions.TIPO
 {
     public class TipoForSwarmUI : Extension
     {
-        public TIPOExtension()
+        public TipoForSwarmUI()
         {
             ExtensionName = "TipoForSwarmUI";
         }
