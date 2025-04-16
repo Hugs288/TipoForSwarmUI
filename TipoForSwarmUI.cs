@@ -10,11 +10,11 @@ using System.Linq;
 
 namespace SwarmExtensions.TIPO
 {
-    public class TIPOExtension : Extension
+    public class TipoForSwarmUI : Extension
     {
         public TIPOExtension()
         {
-            ExtensionName = "TIPO Integration";
+            ExtensionName = "TipoForSwarmUI";
         }
 
         // Parameter Definitions
