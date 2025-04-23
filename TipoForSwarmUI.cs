@@ -54,7 +54,7 @@ namespace SwarmExtensions.TIPO
             TopK = T2IParamTypes.Register<int>(new(Name: "[TIPO] Top K", Description: "TIPO sampling Top K.", Default: "80", Min: 0, Max: 200, Step: 1, Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 9, ViewType: ParamViewType.SLIDER));
             TagLength = T2IParamTypes.Register<string>(new(Name: "[TIPO] Tag Length", Description: "Target tag length.", Default: "long", GetValues: (_) => ["very_short", "short", "long", "very_long"], Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 10));
             NlLength = T2IParamTypes.Register<string>(new(Name: "[TIPO] NL Length", Description: "Target natural language length.", Default: "long", GetValues: (_) => ["very_short", "short", "long", "very_long"], Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 11));
-            TipoSeed = T2IParamTypes.Register<long>(new(Name: "[TIPO] Seed", Description: "TIPO generation seed (-1 random).", Default: "-1", Min: -1, Max: long.MaxValue, Step: 1, Toggleable: true, Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 12, ViewType: ParamViewType.SEED, Clean: T2IParamTypes.Seed.Type.Clean));
+            TipoSeed = T2IParamTypes.Register<long>(new(Name: "[TIPO] Seed", Description: "TIPO generation seed. Use -1 for random, or -2 to use the main image generation seed.", Default: "-2", Min: -2, Max: long.MaxValue, Step: 1, Toggleable: true, Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 12, ViewType: ParamViewType.SEED, Clean: T2IParamTypes.Seed.Type.Clean));
             Device = T2IParamTypes.Register<string>(new(Name: "[TIPO] Device", Description: "Device override for TIPO.", Default: "cuda", GetValues: (_) => ["cuda", "cpu"], Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 13));
 
             // Add Parser for Dynamic Model List from ComfyUI Backend Info
@@ -77,7 +77,10 @@ namespace SwarmExtensions.TIPO
 
             WorkflowGenerator.AddStep(g =>
             {
-                bool isTipoGroupActive = T2IParamTypes.Types.Values.Any(p => p.Group == TIPOParamGroup && g.UserInput.ValuesInput.ContainsKey(p.ID));
+                // Check if any TIPO parameter is actively used in the input
+                 bool isTipoGroupActive = T2IParamTypes.Types.Values
+                    .Where(p => p.Group == TIPOParamGroup && p.ID != null) // Ensure p.ID is not null before checking
+                    .Any(p => g.UserInput.ValuesInput.ContainsKey(p.ID));
 
                 if (isTipoGroupActive)
                 {
@@ -90,7 +93,26 @@ namespace SwarmExtensions.TIPO
                     string promptTypeText = g.UserInput.Get(PromptType, "tags");
                     bool useUnformatted = g.UserInput.Get(NoFormatting);
                     string deviceSelection = g.UserInput.Get(Device);
-                    long tipoSeedValue = g.UserInput.Get(TipoSeed);
+                    // Get requested TIPO seed and determine final seed value
+                    long tipoSeedRequest = g.UserInput.Get(TipoSeed);
+                    long finalTipoSeed;
+
+                    if (tipoSeedRequest == -1)
+                    {
+                        finalTipoSeed = Random.Shared.Next(); // Generate a new random seed specifically for TIPO
+                    }
+                    else if (tipoSeedRequest == -2)
+                    {
+                        // Use the main image generation seed
+                        finalTipoSeed = g.UserInput.Get(T2IParamTypes.Seed);
+                    }
+                    else
+                    {
+                        finalTipoSeed = tipoSeedRequest; // Use the explicitly provided TIPO seed
+                    }
+
+                    g.UserInput.Set(TipoSeed, finalTipoSeed);
+
 
                     JObject tipoInputs = new()
                     {
@@ -107,7 +129,7 @@ namespace SwarmExtensions.TIPO
                         ["top_k"] = g.UserInput.Get(TopK),
                         ["tag_length"] = g.UserInput.Get(TagLength),
                         ["nl_length"] = g.UserInput.Get(NlLength),
-                        ["seed"] = tipoSeedValue,
+                        ["seed"] = finalTipoSeed, // Use the final calculated seed for the node input
                         ["device"] = deviceSelection
                     };
                     string tipoNodeId = g.CreateNode("TIPO", tipoInputs, g.GetStableDynamicID(100, 0));
