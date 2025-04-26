@@ -111,8 +111,7 @@ namespace SwarmExtensions.TIPO
                         finalTipoSeed = tipoSeedRequest; // Use the explicitly provided TIPO seed
                     }
 
-                    g.UserInput.Set(TipoSeed, finalTipoSeed);
-
+                    g.UserInput.Set(TipoSeed, finalTipoSeed); // Set the calculated seed back into UserInput for metadata
 
                     JObject tipoInputs = new()
                     {
@@ -135,6 +134,15 @@ namespace SwarmExtensions.TIPO
                     string tipoNodeId = g.CreateNode("TIPO", tipoInputs, g.GetStableDynamicID(100, 0));
                     int tipoOutputIndex = useUnformatted ? 2 : 0; // 0 = formatted, 2 = unformatted
                     JArray tipoOutputLink = new JArray { tipoNodeId, tipoOutputIndex };
+
+                    // Add SwarmAddSaveMetadataWS node to save the TIPO output
+                    JObject metaDataInputs = new()
+                    {
+                        ["key"] = "tipo_prompt",
+                        ["value"] = tipoOutputLink
+                    };
+
+                    g.CreateNode("SwarmAddSaveMetadataWS", metaDataInputs, g.GetStableDynamicID(100, 1));
 
                     string targetEncoderId = g.FinalPrompt?[0]?.ToString() ?? "6"; // Try state, fallback default
 
