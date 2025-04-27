@@ -1,4 +1,3 @@
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Builtin_ComfyUIBackend;
 using SwarmUI.Core;
@@ -31,18 +30,35 @@ namespace SwarmExtensions.TIPO
         public static List<string> DynamicTipoModelList = ["(Requires ComfyUI Backend Connection)"];
         private static readonly object ModelListLock = new(); // Lock for thread safety
 
+        public static bool HandleTipoMetadata(T2IParamInput user_input, string key, string value)
+        {
+            if (key == "tipo_prompt")
+            {
+                string originalPrompt = user_input.Get(T2IParamTypes.Prompt);
+
+                // Store the original prompt in the ExtraMeta dictionary, or use the prompt before wildcard processing if it exists
+                if (!user_input.ExtraMeta.ContainsKey("original_prompt") && !string.IsNullOrEmpty(originalPrompt))
+                {
+                    user_input.ExtraMeta["original_prompt"] = originalPrompt;
+                }
+                // Replace the original prompt in the user input data with the TIPO-generated value.
+                user_input.Set(T2IParamTypes.Prompt, value);
+
+                // Indicate that we've handled this key, so Swarm doesn't also add it as 'custom_tipo_prompt' to ExtraMeta
+                return true;
+            }
+            // If it's not our key, let other handlers or the default logic process it
+            return false;
+        }
+
         public override void OnInit()
         {
-            // Install
             InstallableFeatures.RegisterInstallableFeature(new("TIPO", "tipo_prompt_generation", "https://github.com/KohakuBlueleaf/z-tipo-extension", "KohakuBlueleaf", "This will install TIPO developed by KohakuBlueleaf.\nDo you wish to install?"));
             ScriptFiles.Add("assets/TIPO.js");
-            // Map ComfyUI Node name to SwarmUI Feature ID for backend capability detection
             ComfyUIBackendExtension.NodeToFeatureMap["TIPO"] = "tipo_prompt_generation";
 
-            // Define the Parameter Group
             TIPOParamGroup = new("TIPO Prompt Generation", Toggles: true, Open: false, IsAdvanced: false, OrderPriority: 50, Description: "Uses the TIPO node (if installed on the ComfyUI backend) to generate or modify prompts based on the main prompt text. Requires the 'TIPO' custom node from Kahsolt.");
 
-            // Register Parameters
             PromptType = T2IParamTypes.Register<string>(new(Name: "[TIPO] Prompt Type", Description: "Treat main prompt as 'tags' or 'natural language'.", Default: "tags", GetValues: (_) => ["tags", "natural language"], Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 2));
             BanTags = T2IParamTypes.Register<string>(new(Name: "[TIPO] Banned Tags", Description: "Comma-separated list of tags to ban.", Default: "", Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 3, ViewType: ParamViewType.BIG));
             TipoModel = T2IParamTypes.Register<string>(new(Name: "[TIPO] TIPO Model", Description: "Select TIPO model (requires backend connection).", Default: "", GetValues: (_) => { lock (ModelListLock) { return DynamicTipoModelList.AsEnumerable().Reverse().ToList(); } }, Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 4));
@@ -54,10 +70,9 @@ namespace SwarmExtensions.TIPO
             TopK = T2IParamTypes.Register<int>(new(Name: "[TIPO] Top K", Description: "TIPO sampling Top K.", Default: "80", Min: 0, Max: 200, Step: 1, Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 9, ViewType: ParamViewType.SLIDER));
             TagLength = T2IParamTypes.Register<string>(new(Name: "[TIPO] Tag Length", Description: "Target tag length.", Default: "long", GetValues: (_) => ["very_short", "short", "long", "very_long"], Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 10));
             NlLength = T2IParamTypes.Register<string>(new(Name: "[TIPO] NL Length", Description: "Target natural language length.", Default: "long", GetValues: (_) => ["very_short", "short", "long", "very_long"], Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 11));
-            TipoSeed = T2IParamTypes.Register<long>(new(Name: "[TIPO] Seed", Description: "TIPO generation seed. Use -1 for random, or -2 to use the main image generation seed.", Default: "-2", Min: -2, Max: long.MaxValue, Step: 1, Toggleable: true, Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 12, ViewType: ParamViewType.SEED, Clean: T2IParamTypes.Seed.Type.Clean));
+            TipoSeed = T2IParamTypes.Register<long>(new(Name: "[TIPO] Seed", Description: "TIPO generation seed. Use -1 for random, or -2 to use the main image generation seed.", Default: "-2", Min: -2, Max: long.MaxValue, Step: 1, Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 12, ViewType: ParamViewType.SEED, Clean: T2IParamTypes.Seed.Type.Clean));
             Device = T2IParamTypes.Register<string>(new(Name: "[TIPO] Device", Description: "Device override for TIPO.", Default: "cuda", GetValues: (_) => ["cuda", "cpu"], Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 13));
 
-            // Add Parser for Dynamic Model List from ComfyUI Backend Info
             ComfyUIBackendExtension.RawObjectInfoParsers.Add(rawObjectInfo =>
             {
                 if (rawObjectInfo?["TIPO"]?["input"]?["required"]?["tipo_model"] is JArray modelListToken
@@ -66,7 +81,6 @@ namespace SwarmExtensions.TIPO
                     lock (ModelListLock)
                     {
                         var newModelList = actualList.Select(t => t.ToString()).OrderBy(m => m).ToList();
-                        // Only update if the list content has actually changed
                         if (!newModelList.SequenceEqual(DynamicTipoModelList))
                         {
                             DynamicTipoModelList = newModelList.Any() ? newModelList : ["(No TIPO models found on backend)"];
@@ -75,43 +89,36 @@ namespace SwarmExtensions.TIPO
                 }
             });
 
+            ComfyUIAPIAbstractBackend.AltCustomMetadataHandlers.Add(HandleTipoMetadata);
+
             WorkflowGenerator.AddStep(g =>
             {
-                // Check if any TIPO parameter is actively used in the input
-                 bool isTipoGroupActive = T2IParamTypes.Types.Values
-                    .Where(p => p.Group == TIPOParamGroup && p.ID != null) // Ensure p.ID is not null before checking
-                    .Any(p => g.UserInput.ValuesInput.ContainsKey(p.ID));
+                bool isTipoGroupActive = T2IParamTypes.Types.Values
+                   .Where(p => p.Group == TIPOParamGroup && p.ID != null)
+                   .Any(p => g.UserInput.ValuesInput.ContainsKey(p.ID));
 
                 if (isTipoGroupActive)
                 {
-                    if (!g.Features.Contains("tipo_prompt_generation"))
-                    {
-                        throw new SwarmUserErrorException("TIPO parameters were provided, but the backend does not have the TIPO custom node installed or recognized.");
-                    }
-
                     string mainPromptText = g.UserInput.Get(T2IParamTypes.Prompt) ?? "";
                     string promptTypeText = g.UserInput.Get(PromptType, "tags");
                     bool useUnformatted = g.UserInput.Get(NoFormatting);
                     string deviceSelection = g.UserInput.Get(Device);
-                    // Get requested TIPO seed and determine final seed value
                     long tipoSeedRequest = g.UserInput.Get(TipoSeed);
                     long finalTipoSeed;
 
                     if (tipoSeedRequest == -1)
                     {
-                        finalTipoSeed = Random.Shared.Next(); // Generate a new random seed specifically for TIPO
+                        finalTipoSeed = Random.Shared.Next();
                     }
                     else if (tipoSeedRequest == -2)
                     {
-                        // Use the main image generation seed
-                        finalTipoSeed = g.UserInput.Get(T2IParamTypes.Seed);
+                        long mainSeed = g.UserInput.Get(T2IParamTypes.Seed);
+                        finalTipoSeed = (mainSeed == -1) ? Random.Shared.Next() : mainSeed;
                     }
                     else
                     {
-                        finalTipoSeed = tipoSeedRequest; // Use the explicitly provided TIPO seed
+                        finalTipoSeed = tipoSeedRequest;
                     }
-
-                    g.UserInput.Set(TipoSeed, finalTipoSeed); // Set the calculated seed back into UserInput for metadata
 
                     JObject tipoInputs = new()
                     {
@@ -128,41 +135,21 @@ namespace SwarmExtensions.TIPO
                         ["top_k"] = g.UserInput.Get(TopK),
                         ["tag_length"] = g.UserInput.Get(TagLength),
                         ["nl_length"] = g.UserInput.Get(NlLength),
-                        ["seed"] = finalTipoSeed, // Use the final calculated seed for the node input
+                        ["seed"] = finalTipoSeed,
                         ["device"] = deviceSelection
                     };
                     string tipoNodeId = g.CreateNode("TIPO", tipoInputs, g.GetStableDynamicID(100, 0));
-                    int tipoOutputIndex = useUnformatted ? 2 : 0; // 0 = formatted, 2 = unformatted
+                    int tipoOutputIndex = useUnformatted ? 2 : 0;
                     JArray tipoOutputLink = new JArray { tipoNodeId, tipoOutputIndex };
 
-                    // Add SwarmAddSaveMetadataWS node to save the TIPO output
                     JObject metaDataInputs = new()
                     {
                         ["key"] = "tipo_prompt",
                         ["value"] = tipoOutputLink
                     };
-
                     g.CreateNode("SwarmAddSaveMetadataWS", metaDataInputs, g.GetStableDynamicID(100, 1));
-
-                    string targetEncoderId = g.FinalPrompt?[0]?.ToString() ?? "6"; // Try state, fallback default
-
-                    if (g.Workflow.TryGetValue(targetEncoderId, out JToken targetEncoderToken)
-                        && targetEncoderToken is JObject targetEncoderNode
-                        && targetEncoderNode["inputs"] is JObject encoderInputs)
-                    {
-                        if (targetEncoderNode["class_type"]?.ToString().Contains("CLIPTextEncode") ?? false)
-                        {
-                            string inputName = encoderInputs.ContainsKey("text_g") ? "text_g" : "text";
-                            if (encoderInputs.ContainsKey(inputName))
-                            {
-                                if (inputName == "text_g" && encoderInputs.ContainsKey("text_l")) { encoderInputs["text_l"] = tipoOutputLink; }
-                                encoderInputs[inputName] = tipoOutputLink;
-                                g.FinalPrompt = new JArray { targetEncoderId, g.FinalPrompt?[1] ?? 0 };
-                            }
-                        }
-                    }
                 }
-            }, -0.1); // Run after core nodes are likely created
+            }, -0.1);
         }
     }
 }
