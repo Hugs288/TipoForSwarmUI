@@ -75,7 +75,7 @@ namespace SwarmExtensions.TIPO
             TopK = T2IParamTypes.Register<int>(new(Name: "[TIPO] Top K", Description: "TIPO sampling Top K.", Default: "80", Min: 0, Max: 200, Step: 1, Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 9, ViewType: ParamViewType.SLIDER));
             TagLength = T2IParamTypes.Register<string>(new(Name: "[TIPO] Tag Length", Description: "Target tag length.", Default: "long", GetValues: (_) => ["very_short", "short", "long", "very_long"], Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 10));
             NlLength = T2IParamTypes.Register<string>(new(Name: "[TIPO] NL Length", Description: "Target natural language length.", Default: "long", GetValues: (_) => ["very_short", "short", "long", "very_long"], Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 11));
-            TipoSeed = T2IParamTypes.Register<long>(new(Name: "[TIPO] Seed", Description: "TIPO generation seed. Use -1 for random, or -2 to use the main image generation seed.", Default: "-2", Min: -2, Max: long.MaxValue, Step: 1, Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 12, ViewType: ParamViewType.SEED, Clean: T2IParamTypes.Seed.Type.Clean));
+            TipoSeed = T2IParamTypes.Register<long>(new(Name: "[TIPO] Seed", Description: "TIPO generation seed. Use -1 for random, uses the image generation seed if disabled.", Default: "-1", Min: -1, Max: long.MaxValue, Step: 1, Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 12, ViewType: ParamViewType.SEED, Clean: T2IParamTypes.Seed.Type.Clean, Toggleable: true));
             Device = T2IParamTypes.Register<string>(new(Name: "[TIPO] Device", Description: "Device override for TIPO.", Default: "cuda", GetValues: (_) => ["cuda", "cpu"], Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 13));
 
             // Add Parser for Dynamic Model List from ComfyUI Backend Info
@@ -120,18 +120,21 @@ namespace SwarmExtensions.TIPO
                     long tipoSeedRequest = g.UserInput.Get(TipoSeed);
                     long finalTipoSeed;
 
-                    if (tipoSeedRequest == -1)
+                    if (g.UserInput.ValuesInput.ContainsKey(TipoSeed.Type.ID))
                     {
-                        finalTipoSeed = Random.Shared.Next(); // Generate a new random seed specifically for TIPO
+                        if (tipoSeedRequest == -1) // User explicitly set TIPO seed to -1 (Random)
+                        {
+                            finalTipoSeed = Random.Shared.Next(); // Generate a new random seed specifically for TIPO
+                        }
+                        else // User explicitly set a specific TIPO seed
+                        {
+                            finalTipoSeed = tipoSeedRequest;
+                        }
                     }
-                    else if (tipoSeedRequest == -2)
+                    else // TIPO Seed parameter is disabled (untoggled in UI)
                     {
                         // Use the main image generation seed
                         finalTipoSeed = g.UserInput.Get(T2IParamTypes.Seed);
-                    }
-                    else
-                    {
-                        finalTipoSeed = tipoSeedRequest; // Use the explicitly provided TIPO seed
                     }
 
                     g.UserInput.Set(TipoSeed, finalTipoSeed); // Set the calculated seed back into UserInput for metadata
