@@ -118,12 +118,14 @@ namespace SwarmExtensions.TIPO
                     string deviceSelection = g.UserInput.Get(Device);
                     // Get requested TIPO seed and determine final seed value
                     long tipoSeedRequest = g.UserInput.Get(TipoSeed);
+                    bool useFixedSeedControl = true;
                     long finalTipoSeed;
 
                     if (g.UserInput.TryGet(TipoSeed, out _))
                     {
                         if (tipoSeedRequest == -1) // User explicitly set TIPO seed to -1 (Random)
                         {
+                            useFixedSeedControl = false;
                             finalTipoSeed = Random.Shared.Next(); // Generate a new random seed specifically for TIPO
                         }
                         else // User explicitly set a specific TIPO seed
@@ -157,6 +159,10 @@ namespace SwarmExtensions.TIPO
                         ["seed"] = finalTipoSeed, // Use the final calculated seed for the node input
                         ["device"] = deviceSelection
                     };
+                    if (useFixedSeedControl)
+                    {
+                        tipoInputs["control_after_generate"] = "fixed";
+                    }
                     string tipoNodeId = g.CreateNode("TIPO", tipoInputs, g.GetStableDynamicID(100, 0));
                     int tipoOutputIndex = useUnformatted ? 2 : 0; // 0 = formatted, 2 = unformatted
                     JArray tipoOutputLink = new JArray { tipoNodeId, tipoOutputIndex };
