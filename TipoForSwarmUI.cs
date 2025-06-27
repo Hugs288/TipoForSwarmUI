@@ -1,4 +1,4 @@
-using Newtonsoft.Json;
+Fusing Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Builtin_ComfyUIBackend;
 using SwarmUI.Core;
@@ -61,7 +61,7 @@ namespace SwarmExtensions.TIPO
             ComfyUIBackendExtension.NodeToFeatureMap["TIPO"] = "tipo_prompt_generation";
 
             // Define the Parameter Group
-            TIPOParamGroup = new("TIPO Prompt Generation", Toggles: true, Open: false, IsAdvanced: false, OrderPriority: 50, Description: "Uses the TIPO node (if installed on the ComfyUI backend) to generate or modify prompts based on the main prompt text. Requires the 'TIPO' custom node from Kahsolt.");
+            TIPOParamGroup = new("TIPO Prompt Generation", Toggles: true, Open: false, IsAdvanced: false, OrderPriority: 50, Description: "Use TIPO to upsample prompt.");
 
             // Register Parameters
             PromptType = T2IParamTypes.Register<string>(new(Name: "[TIPO] Prompt Type", Description: "Treat main prompt as 'tags' or 'natural language'.", Default: "tags", GetValues: (_) => ["tags", "natural language"], Group: TIPOParamGroup, FeatureFlag: "tipo_prompt_generation", OrderPriority: 2));
